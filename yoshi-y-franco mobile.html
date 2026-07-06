@@ -1,0 +1,1571 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Yoshi y Franco — La Gran Aventura</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body {
+    height:100%; overflow:hidden; background:#7ec8e3;
+    font-family:'Comic Sans MS','Chalkboard SE','Segoe UI',sans-serif;
+    overscroll-behavior:none;
+    -webkit-user-select:none; user-select:none;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-touch-callout:none;
+    position:fixed; width:100%;
+  }
+  #wrap { position:relative; width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  canvas { display:block; width:100%; height:100%; touch-action:none; }
+  #rotate {
+    position:absolute; inset:0; z-index:20;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:#3a5a6a; color:#fff; text-align:center; padding:24px; gap:14px;
+  }
+  #rotate .phone { font-size:64px; animation:spinPhone 1.6s ease-in-out infinite; }
+  @keyframes spinPhone { 0%,20%{transform:rotate(0)} 55%,100%{transform:rotate(90deg)} }
+  #rotate p { font-size:clamp(18px,5vw,26px); line-height:1.4; }
+  #overlay {
+    position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    background:rgba(126,200,227,.92); z-index:10; text-align:center; padding:20px;
+    overflow-y:auto;
+  }
+  #overlay h1 { font-size:clamp(26px,5.5vw,48px); color:#fff; text-shadow:3px 3px 0 #e8974a; margin-bottom:10px; }
+  #overlay p { font-size:clamp(14px,2.4vw,20px); color:#3a5a6a; margin-bottom:20px; max-width:600px; line-height:1.45; }
+  .bigbtn {
+    font-family:inherit; font-size:clamp(22px,4vw,32px); padding:16px 44px; border:none; border-radius:50px;
+    background:#e8974a; color:#fff; cursor:pointer; box-shadow:0 6px 0 #c07330; transition:transform .1s;
+  }
+  .bigbtn:active { transform:translateY(4px); box-shadow:0 2px 0 #c07330; }
+  #shibaPreview { font-size:70px; margin-bottom:6px; animation:bounce 1s infinite; }
+  @keyframes bounce { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-16px)} }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game"></canvas>
+  <div id="rotate" class="hidden">
+    <div class="phone">📱</div>
+    <p><b>¡Gira el teléfono!</b><br>Este juego se juega con el teléfono acostado 🐕💨</p>
+  </div>
+  <div id="overlay">
+    <div id="shibaPreview">🐕</div>
+    <h1>¡Yoshi y Franco: La Gran Aventura!</h1>
+    <p><b>5 etapas:</b><br>
+    1️⃣ Yoshi corre solo hasta encontrar a Franco<br>
+    2️⃣ Paseo con correa (¡ojo con las pozas! 💦)<br>
+    3️⃣ Franco en su moto con Yoshi al lado<br>
+    4️⃣ ¡Franco protege a mamá Jackie con su súper combo! 💪<br>
+    5️⃣ Papá y Franco en moto por los cerros 🏍️🏍️<br><br>
+    Toca la pantalla o aprieta <b>espacio</b> para saltar (¡o dar el combo!).<br>
+    Mantén apretado para saltar más alto.</p>
+    <button class="bigbtn" id="startBtn">▶ ¡A jugar!</button>
+  </div>
+</div>
+<script>
+(() => {
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const rotateEl = document.getElementById('rotate');
+
+const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+let portraitBlocked = false;
+
+let W = 900, H = 500, dpr = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth; H = window.innerHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  // en teléfonos en vertical, pedir que giren (el juego es horizontal)
+  portraitBlocked = isTouchDevice && H > W && W < 820;
+  rotateEl.classList.toggle('hidden', !portraitBlocked);
+}
+window.addEventListener('resize', resize);
+window.addEventListener('orientationchange', () => setTimeout(resize, 250));
+if (window.visualViewport) window.visualViewport.addEventListener('resize', resize);
+resize();
+
+// bloquear scroll, rebote y pull-to-refresh en móvil
+document.addEventListener('touchmove', e => e.preventDefault(), { passive:false });
+document.addEventListener('gesturestart', e => e.preventDefault());
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ---------- Audio ----------
+let AC = null;
+function audio() { if (!AC) { try { AC = new (window.AudioContext||window.webkitAudioContext)(); } catch(e){} } return AC; }
+function blip(freq, dur, type='sine', vol=0.15, when=0) {
+  const ac = audio(); if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.value = freq;
+  g.gain.setValueAtTime(vol, ac.currentTime + when);
+  g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + when + dur);
+  o.connect(g); g.connect(ac.destination);
+  o.start(ac.currentTime + when); o.stop(ac.currentTime + when + dur + 0.05);
+}
+const sndJump  = () => { blip(420,.12,'square',.08); blip(640,.12,'square',.06,.05); };
+const sndBone  = () => { blip(880,.1,'sine',.12); blip(1320,.15,'sine',.1,.07); };
+const sndBump  = () => blip(160,.18,'triangle',.12);
+const sndWin   = () => { [523,659,784,1047,784,1047].forEach((f,i)=>blip(f,.22,'sine',.12,i*.16)); };
+const sndChirp = () => { blip(1900,.06,'sine',.08); blip(2300,.06,'sine',.07,.08); blip(2100,.05,'sine',.06,.16); };
+const sndBark  = () => { blip(220,.08,'sawtooth',.09); blip(180,.1,'sawtooth',.08,.12); };
+const sndSplash= () => { blip(320,.08,'triangle',.12); blip(140,.2,'sine',.12,.05); blip(500,.06,'sine',.06,.1); };
+const sndStage = () => { [660,880,990].forEach((f,i)=>blip(f,.18,'sine',.1,i*.12)); };
+const sndMoto  = () => { blip(90,.3,'sawtooth',.05); blip(120,.3,'sawtooth',.04,.1); };
+const sndPunch = () => { blip(100,.1,'square',.16); blip(700,.05,'square',.08,.02); };
+const sndBoing = () => { blip(500,.08,'sine',.1); blip(300,.12,'sine',.09,.07); blip(200,.15,'sine',.08,.15); };
+const sndTrophy= () => { [523,659,784,1047,1319,1568].forEach((f,i)=>blip(f,.25,'sine',.12,i*.14)); };
+
+// ---------- Config de etapas ----------
+const STAGES = {
+  1: { dur:30, speedMul:1.00, mode:'jump',  dogs:true,  puddles:false, water:false, title:'Etapa 1', sub:'¡Yoshi corre hacia Franco!', goal:'🧒', marker:'🐾' },
+  2: { dur:30, speedMul:1.05, mode:'jump',  dogs:true,  puddles:true,  water:false, title:'Etapa 2', sub:'Paseo con correa 🐕 ¡Ojo con las pozas!', goal:'🌳', marker:'🐾' },
+  3: { dur:30, speedMul:1.45, mode:'jump',  dogs:false, puddles:true,  water:false, title:'Etapa 3', sub:'¡Franco en moto y Yoshi a toda carrera!', goal:'🏁', marker:'🏍️' },
+  4: { dur:30, speedMul:0.95, mode:'punch', dogs:false, puddles:false, water:false, title:'Etapa 4', sub:'¡Franco protege a mamá Jackie! Toca para el súper combo 💪', goal:'🤰', marker:'💪' },
+  5: { dur:30, speedMul:1.50, mode:'jump',  dogs:false, puddles:false, water:true,  title:'Etapa 5', sub:'¡Papá y Franco en moto por los cerros! ¡Salten el agua! 🏍️🏍️', goal:'🏆', marker:'🏍️' }
+};
+
+// ---------- Estado ----------
+let state = 'menu'; // menu | card | run | arrive | meet | finish | party
+let stage = 1;
+let t = 0, last = 0, stateT = 0;
+let player, obstacles, bones, clouds, hills, trees, particles, hearts, splashTexts, powTexts;
+let dogs, birds, nextDog, nextBird;
+let bonesCount, speed, nextObs, nextBone, runPhase, francoX, flagX, partyT, bumpFlash, ouchT;
+let scrollX = 0;
+
+function groundLevel(){ return H - Math.max(70, H*0.16); }
+function baseSpeed(){ return Math.min(W,900) * 0.42; }
+
+// terreno: plano en etapas 1-4, cerros ondulados en la 5
+function terrainAt(x) {
+  const base = groundLevel();
+  if (stage === 5) {
+    const wx = scrollX + x;
+    const h = Math.sin(wx*0.006)*0.6 + Math.sin(wx*0.0113 + 2)*0.4; // -1..1
+    return base - (h*0.5 + 0.5) * Math.max(42, H*0.10);
+  }
+  return base;
+}
+function terrainSlope(x) {
+  return Math.atan2(terrainAt(x+14) - terrainAt(x-14), 28);
+}
+
+function resetWorldDeco() {
+  clouds = Array.from({length:6}, () => ({ x: Math.random()*W, y: H*0.08 + Math.random()*H*0.22, s: 0.6+Math.random()*0.8 }));
+  hills  = Array.from({length:4}, (_,i) => ({ x: i*(W/2.5), w: W*0.5+Math.random()*W*0.2, h: H*0.12+Math.random()*H*0.08 }));
+  trees  = Array.from({length:5}, (_,i) => ({ x: i*(W/3.2)+Math.random()*80, s: 0.8+Math.random()*0.5 }));
+}
+
+function beginStage(n) {
+  stage = n;
+  const cfg = STAGES[n];
+  t = 0;
+  scrollX = 0;
+  speed = baseSpeed() * cfg.speedMul;
+  const px = n === 1 ? Math.max(90, W*0.14) : n === 4 ? Math.max(200, W*0.28) : Math.max(170, W*0.25);
+  player = { x: px, y: terrainAt(px), vy: 0, onGround: true, jumpHeld:false, punchT: 0 };
+  obstacles = []; bones = []; dogs = []; birds = []; splashTexts = []; powTexts = [];
+  nextObs = 2.2; nextBone = 1.2;
+  nextDog = 6 + Math.random()*4; nextBird = 3.5;
+  runPhase = 0; bumpFlash = 0; ouchT = 0;
+  state = 'run';
+  if (n === 3 || n === 5) sndMoto();
+}
+
+function showCard(n) {
+  stage = n; state = 'card'; stateT = 0; sndStage();
+}
+
+function fullReset() {
+  bonesCount = 0;
+  particles = []; hearts = [];
+  obstacles = []; bones = []; dogs = []; birds = []; splashTexts = []; powTexts = [];
+  runPhase = 0; bumpFlash = 0; ouchT = 0; scrollX = 0;
+  resetWorldDeco();
+  showCard(1);
+}
+
+// ---------- Input ----------
+function action() {
+  const ac = audio(); if (ac && ac.state === 'suspended') ac.resume();
+  if (state === 'run') {
+    if (STAGES[stage].mode === 'punch') {
+      doPunch();
+    } else if (player.onGround) {
+      player.vy = -Math.max(H*1.25, 600);
+      player.onGround = false;
+      player.jumpHeld = true;
+      sndJump();
+    }
+  } else if (state === 'card' && stateT > 0.8) {
+    beginStage(stage);
+  } else if (state === 'party' && partyT > 2.5) {
+    fullReset();
+  }
+}
+function releaseJump() { if (player) player.jumpHeld = false; }
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    e.preventDefault();
+    if (!e.repeat) action();
+  }
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'Space' || e.code === 'ArrowUp') releaseJump();
+});
+canvas.addEventListener('pointerdown', action);
+canvas.addEventListener('pointerup', releaseJump);
+canvas.addEventListener('pointercancel', releaseJump);
+canvas.addEventListener('pointerleave', releaseJump);
+startBtn.addEventListener('click', () => {
+  audio();
+  // en móvil: pantalla completa + bloquear en horizontal (donde el navegador lo permita)
+  if (isTouchDevice) {
+    const el = document.documentElement;
+    const fs = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (fs) { try { const p = fs.call(el); if (p && p.catch) p.catch(()=>{}); } catch(e){} }
+    if (screen.orientation && screen.orientation.lock) {
+      try { screen.orientation.lock('landscape').catch(()=>{}); } catch(e){}
+    }
+  }
+  overlay.classList.add('hidden');
+  fullReset();
+});
+
+// ---------- Combo de Franco (etapa 4) ----------
+function doPunch() {
+  if (player.punchT > 0) return;
+  player.punchT = 0.35;
+  sndPunch();
+  const zoneA = player.x + 20, zoneB = player.x + 160;
+  let hitSomething = false;
+  const cols = { rock:'#8a8a92', bush:'#4a8a3a', log:'#8a5a3a', box:'#c9a86b' };
+  obstacles.forEach(o => {
+    if (o.type === 'puddle' || o.type === 'water' || o.dead) return;
+    if (o.x + o.w/2 > zoneA && o.x - o.w/2 < zoneB) {
+      o.dead = true; hitSomething = true;
+      spawnParticleBurst(o.x, terrainAt(o.x) - o.h/2, cols[o.type] || '#8a8a92', 16);
+      powTexts.push({ x: o.x, y: terrainAt(o.x) - o.h - 30, t: 0 });
+      if (o.type === 'box') sndBoing();
+    }
+  });
+  obstacles = obstacles.filter(o => !o.dead);
+  if (hitSomething) spawnParticleBurst(player.x + 90, terrainAt(player.x) - 50, '#ffd24a', 8);
+}
+
+// ---------- Dibujo: Yoshi ----------
+function drawYoshi(x, y, phase, airborne, happy, collar) {
+  ctx.save();
+  ctx.translate(x, y);
+  const bob = airborne ? 0 : Math.sin(phase*18)*2;
+  ctx.translate(0, bob);
+  const orange = '#e8974a', cream = '#f7e8cf', dark = '#3a2a1a';
+
+  ctx.fillStyle = orange;
+  ctx.beginPath(); ctx.arc(-34, -46, 11, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = cream;
+  ctx.beginPath(); ctx.arc(-34, -46, 5, 0, Math.PI*2); ctx.fill();
+
+  ctx.strokeStyle = orange; ctx.lineWidth = 8; ctx.lineCap = 'round';
+  for (let i=0;i<4;i++) {
+    const px = -24 + i*15;
+    const ang = airborne ? [-0.25,0.25,-0.2,0.3][i] : Math.sin(phase*18 + i*Math.PI/1.3)*0.55;
+    ctx.beginPath();
+    ctx.moveTo(px, -26);
+    ctx.lineTo(px + Math.sin(ang)*16, -26 + Math.cos(ang)*24);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = orange;
+  ctx.beginPath(); ctx.ellipse(-8, -38, 32, 20, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = cream;
+  ctx.beginPath(); ctx.ellipse(8, -32, 16, 12, 0.2, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = orange;
+  ctx.beginPath(); ctx.arc(26, -58, 17, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = cream;
+  ctx.beginPath(); ctx.ellipse(34, -53, 11, 8, 0.15, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = orange;
+  ctx.beginPath(); ctx.moveTo(14,-70); ctx.lineTo(20,-84); ctx.lineTo(27,-70); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(28,-71); ctx.lineTo(35,-84); ctx.lineTo(40,-68); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#d47f36';
+  ctx.beginPath(); ctx.moveTo(17,-71); ctx.lineTo(20,-79); ctx.lineTo(24,-71); ctx.closePath(); ctx.fill();
+
+  if (collar) {
+    ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(22, -50, 13, Math.PI*0.15, Math.PI*0.85); ctx.stroke();
+  }
+
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.arc(43, -55, 3.2, 0, Math.PI*2); ctx.fill();
+  if (happy) {
+    ctx.strokeStyle = dark; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(27, -60, 4, Math.PI*1.1, Math.PI*1.9); ctx.stroke();
+    ctx.fillStyle = '#c25a5a';
+    ctx.beginPath(); ctx.arc(36, -48, 4, 0, Math.PI); ctx.fill();
+    ctx.fillStyle = '#f08a8a';
+    ctx.beginPath(); ctx.ellipse(36, -46, 2.5, 3, 0, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.arc(27, -61, 2.8, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(38, -50, 4, 0.2, Math.PI*0.8); ctx.stroke();
+  }
+  ctx.restore();
+}
+function yoshiCollarPoint(x, y) { return { x: x + 14, y: y - 52 }; }
+
+// ---------- Dibujo: Franco ----------
+function drawFranco(x, y, phase, mode, punchT) {
+  // mode: 'stand' | 'jumpparty' | 'walk' | 'punchwalk'
+  ctx.save();
+  ctx.translate(x, y);
+  const jumping = mode === 'jumpparty';
+  const hop = jumping ? Math.abs(Math.sin(phase*6))*26 : 0;
+  ctx.translate(0, -hop);
+  const skin = '#f2c9a0', shirt = '#5aa9e6', pants = '#4a6a3a', hair = '#9a7a4a';
+
+  // piernas
+  ctx.strokeStyle = pants; ctx.lineWidth = 9; ctx.lineCap='round';
+  if (mode === 'walk' || mode === 'punchwalk') {
+    const a = Math.sin(phase*11)*0.6;
+    ctx.beginPath(); ctx.moveTo(-2,-34); ctx.lineTo(-2 + Math.sin(a)*14, -6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(2,-34); ctx.lineTo(2 + Math.sin(a+Math.PI)*14, -6); ctx.stroke();
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath(); ctx.ellipse(-2 + Math.sin(a)*14 + 3, -4, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(2 + Math.sin(a+Math.PI)*14 + 3, -4, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+  } else {
+    const spread = jumping ? 8 : 4;
+    ctx.beginPath(); ctx.moveTo(-4,-34); ctx.lineTo(-spread, -6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4,-34); ctx.lineTo(spread, -6); ctx.stroke();
+    ctx.fillStyle = '#c0392b';
+    ctx.beginPath(); ctx.ellipse(-spread-2, -4, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(spread+2, -4, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // cuerpo
+  ctx.fillStyle = shirt;
+  ctx.beginPath(); ctx.roundRect(-13, -62, 26, 30, 8); ctx.fill();
+
+  // brazos
+  ctx.strokeStyle = shirt; ctx.lineWidth = 8;
+  ctx.fillStyle = skin;
+  if (jumping) {
+    ctx.beginPath(); ctx.moveTo(-11,-56); ctx.lineTo(-24,-78); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11,-56); ctx.lineTo(24,-78); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-24,-78,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(24,-78,5,0,Math.PI*2); ctx.fill();
+  } else if (mode === 'punchwalk' && punchT > 0) {
+    // ¡EL SÚPER COMBO! brazo gigante musculoso extendido
+    const ext = Math.sin((0.35 - punchT)/0.35 * Math.PI); // 0→1→0
+    ctx.beginPath(); ctx.moveTo(-11,-56); ctx.lineTo(-18,-40); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-18,-40,5,0,Math.PI*2); ctx.fill();
+    const armLen = 50 + ext*64;
+    const elbowX = 10 + armLen*0.5;
+    // hombro / deltoides redondo
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(12, -54, 9 + ext*2, 0, Math.PI*2); ctx.fill();
+    // brazo superior grueso
+    ctx.strokeStyle = skin; ctx.lineWidth = 15 + ext*3;
+    ctx.beginPath(); ctx.moveTo(12,-54); ctx.lineTo(elbowX, -54); ctx.stroke();
+    // BÍCEPS con peak hacia arriba (la montaña del músculo)
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(12 + armLen*0.26, -63 - ext*4, 15 + ext*6, 11 + ext*5, -0.1, 0, Math.PI*2); ctx.fill();
+    // línea de definición del bíceps
+    ctx.strokeStyle = '#d8a878'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(12 + armLen*0.26, -60 - ext*4, 10 + ext*4, Math.PI*1.15, Math.PI*1.8); ctx.stroke();
+    // antebrazo grueso que se afina hacia el puño
+    ctx.strokeStyle = skin; ctx.lineWidth = 12;
+    ctx.beginPath(); ctx.moveTo(elbowX, -54); ctx.lineTo(10 + armLen, -52); ctx.stroke();
+    // bulto del antebrazo
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.ellipse(elbowX + armLen*0.22, -56, 9 + ext*3, 7 + ext*2, 0.1, 0, Math.PI*2); ctx.fill();
+    // puño GIGANTE
+    ctx.beginPath(); ctx.arc(10 + armLen, -52, 12 + ext*4, 0, Math.PI*2); ctx.fill();
+    // nudillos
+    ctx.strokeStyle = '#d8a878'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(10 + armLen + 4, -56, 5, Math.PI*1.3, Math.PI*1.9); ctx.stroke();
+    // líneas de impacto
+    if (ext > 0.6) {
+      ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 3;
+      for (let i=0;i<3;i++) {
+        const ay = -64 + i*11;
+        ctx.beginPath(); ctx.moveTo(10 + armLen + 16, ay); ctx.lineTo(10 + armLen + 34, ay); ctx.stroke();
+      }
+    }
+  } else if (mode === 'muscles') {
+    // pose de doble bíceps: ambos brazos arriba mostrando los músculos 💪💪
+    [[-1,0],[1,0]].forEach(([side]) => {
+      const sx = side*12;
+      // hombro
+      ctx.fillStyle = skin;
+      ctx.beginPath(); ctx.arc(sx, -56, 8, 0, Math.PI*2); ctx.fill();
+      // brazo superior hacia afuera
+      ctx.strokeStyle = skin; ctx.lineWidth = 13;
+      ctx.beginPath(); ctx.moveTo(sx, -56); ctx.lineTo(sx + side*17, -64); ctx.stroke();
+      // BÍCEPS enorme con peak
+      ctx.fillStyle = skin;
+      ctx.beginPath(); ctx.ellipse(sx + side*10, -66, 12, 10, side*0.3, 0, Math.PI*2); ctx.fill();
+      ctx.strokeStyle = '#d8a878'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(sx + side*10, -63, 8, Math.PI*1.15, Math.PI*1.8); ctx.stroke();
+      // antebrazo hacia arriba
+      ctx.strokeStyle = skin; ctx.lineWidth = 10;
+      ctx.beginPath(); ctx.moveTo(sx + side*17, -64); ctx.lineTo(sx + side*14, -86); ctx.stroke();
+      // puño cerrado
+      ctx.fillStyle = skin;
+      ctx.beginPath(); ctx.arc(sx + side*14, -88, 8, 0, Math.PI*2); ctx.fill();
+    });
+    // destellos de fuerza
+    ctx.fillStyle = '#ffd24a'; ctx.font = '14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('✦', -32, -78);
+    ctx.fillText('✦', 32, -80);
+    ctx.fillText('✦', 0, -100);
+  } else if (mode === 'walk' || mode === 'punchwalk') {
+    ctx.beginPath(); ctx.moveTo(-11,-56); ctx.lineTo(-18,-40); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-18,-40,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(11,-56); ctx.lineTo(26,-48); ctx.stroke();
+    ctx.beginPath(); ctx.arc(26,-48,5,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(-11,-56); ctx.lineTo(-20,-40); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(11,-56); ctx.lineTo(20,-40); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-20,-40,5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(20,-40,5,0,Math.PI*2); ctx.fill();
+  }
+
+  // cabeza
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(0, -76, 15, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = hair;
+  ctx.beginPath(); ctx.arc(0, -80, 15, Math.PI*1.05, Math.PI*1.95); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0,-88,14,7,0,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#3a2a1a';
+  ctx.beginPath(); ctx.arc(-5,-77,2.2,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(5,-77,2.2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0,-72,5,0.15,Math.PI-0.15); ctx.stroke();
+  ctx.fillStyle = 'rgba(240,138,138,.6)';
+  ctx.beginPath(); ctx.arc(-9,-71,3,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(9,-71,3,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function francoHandPoint(x, y) { return { x: x + 26, y: y - 48 }; }
+
+// ---------- Dibujo: Jackie (embarazada) ----------
+function drawJackie(x, y, phase, mode) {
+  // mode: 'walk' | 'stand'
+  ctx.save();
+  ctx.translate(x, y);
+  const skin = '#f2c9a0', dress = '#b57ad1', hair = '#6a4a2a';
+
+  // piernas bajo el vestido
+  ctx.strokeStyle = skin; ctx.lineWidth = 8; ctx.lineCap='round';
+  if (mode === 'walk') {
+    const a = Math.sin(phase*10)*0.45;
+    ctx.beginPath(); ctx.moveTo(-3,-28); ctx.lineTo(-3 + Math.sin(a)*12, -4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(3,-28); ctx.lineTo(3 + Math.sin(a+Math.PI)*12, -4); ctx.stroke();
+    ctx.fillStyle = '#8a5aa8';
+    ctx.beginPath(); ctx.ellipse(-3 + Math.sin(a)*12 + 3, -2, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(3 + Math.sin(a+Math.PI)*12 + 3, -2, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(-4,-28); ctx.lineTo(-5, -4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4,-28); ctx.lineTo(5, -4); ctx.stroke();
+    ctx.fillStyle = '#8a5aa8';
+    ctx.beginPath(); ctx.ellipse(-7, -2, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(7, -2, 7, 4, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // vestido con guatita de embarazo
+  ctx.fillStyle = dress;
+  ctx.beginPath();
+  ctx.moveTo(-14, -26);
+  ctx.lineTo(-10, -66);
+  ctx.lineTo(10, -66);
+  ctx.lineTo(16, -26);
+  ctx.closePath(); ctx.fill();
+  // guatita redonda hacia adelante
+  ctx.beginPath(); ctx.ellipse(11, -48, 12, 14, 0, 0, Math.PI*2); ctx.fill();
+  // mano sobre la guatita 🤰
+  ctx.strokeStyle = dress; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(10,-62); ctx.quadraticCurveTo(24,-56,19,-44); ctx.stroke();
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(19,-44,4.5,0,Math.PI*2); ctx.fill();
+  // otro brazo
+  ctx.strokeStyle = dress; ctx.lineWidth = 7;
+  if (mode === 'stand') {
+    // saludando feliz
+    ctx.beginPath(); ctx.moveTo(-9,-62); ctx.lineTo(-20,-80); ctx.stroke();
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(-20,-80,4.5,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(-9,-62); ctx.lineTo(-16,-44); ctx.stroke();
+    ctx.fillStyle = skin;
+    ctx.beginPath(); ctx.arc(-16,-44,4.5,0,Math.PI*2); ctx.fill();
+  }
+
+  // cabeza
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(0, -80, 14, 0, Math.PI*2); ctx.fill();
+  // pelo largo
+  ctx.fillStyle = hair;
+  ctx.beginPath(); ctx.arc(0, -84, 14, Math.PI*0.95, Math.PI*2.05); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(-11, -66, 6, 18, 0.15, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0,-91,13,7,0,0,Math.PI*2); ctx.fill();
+  // cara
+  ctx.fillStyle = '#3a2a1a';
+  ctx.beginPath(); ctx.arc(-4,-81,2,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(5,-81,2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0,-76,4.5,0.15,Math.PI-0.15); ctx.stroke();
+  ctx.fillStyle = 'rgba(240,138,138,.6)';
+  ctx.beginPath(); ctx.arc(-8,-75,2.8,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(9,-75,2.8,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+// ---------- Dibujo: moto de Franco (mini eléctrica) ----------
+function drawFrancoMoto(x, y, phase, airborne, tilt, rider = true) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(airborne ? -0.12 : (tilt || 0));
+  const blue = '#2d6fd1', darkblue = '#1a4a9a', tire = '#2a2a2a', rim = '#cfd6e0';
+  const skin = '#f2c9a0', shirt = '#5aa9e6';
+
+  const wheelR = 15;
+  [[-30,-wheelR],[30,-wheelR]].forEach(([wx,wy]) => {
+    ctx.fillStyle = tire;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = rim;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#8a92a0'; ctx.lineWidth = 2;
+    const rot = phase*10;
+    for (let i=0;i<3;i++) {
+      const a = rot + i*Math.PI/1.5;
+      ctx.beginPath();
+      ctx.moveTo(wx - Math.cos(a)*wheelR*0.45, wy - Math.sin(a)*wheelR*0.45);
+      ctx.lineTo(wx + Math.cos(a)*wheelR*0.45, wy + Math.sin(a)*wheelR*0.45);
+      ctx.stroke();
+    }
+  });
+
+  ctx.fillStyle = blue;
+  ctx.beginPath();
+  ctx.moveTo(-30, -22); ctx.lineTo(-14, -40); ctx.lineTo(14, -40);
+  ctx.lineTo(30, -24); ctx.lineTo(22, -18); ctx.lineTo(-22, -18);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = darkblue;
+  ctx.beginPath(); ctx.roundRect(-12, -36, 24, 14, 4); ctx.fill();
+  ctx.fillStyle = '#ffd24a';
+  ctx.beginPath();
+  ctx.moveTo(2,-34); ctx.lineTo(-4,-28); ctx.lineTo(0,-28); ctx.lineTo(-2,-24); ctx.lineTo(5,-30); ctx.lineTo(1,-30);
+  ctx.closePath(); ctx.fill();
+
+  ctx.strokeStyle = darkblue; ctx.lineWidth = 5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(30,-24); ctx.lineTo(36,-52); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(30,-52); ctx.lineTo(42,-54); ctx.stroke();
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.roundRect(-20, -46, 22, 7, 3); ctx.fill();
+
+  if (rider) {
+  // Franco montado
+  ctx.strokeStyle = '#4a6a3a'; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(-8,-48); ctx.lineTo(0,-34); ctx.lineTo(-2,-22); ctx.stroke();
+  ctx.fillStyle = '#c0392b';
+  ctx.beginPath(); ctx.ellipse(0,-20,6,4,0,0,Math.PI*2); ctx.fill();
+  ctx.save();
+  ctx.translate(-8,-48); ctx.rotate(0.35);
+  ctx.fillStyle = shirt;
+  ctx.beginPath(); ctx.roundRect(-11,-30,22,32,8); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = shirt; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(-2,-68); ctx.lineTo(20,-58); ctx.lineTo(38,-54); ctx.stroke();
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(38,-54,4.5,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(2, -78, 13, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#d13a3a';
+  ctx.beginPath(); ctx.arc(2, -80, 14, Math.PI*0.85, Math.PI*2.1); ctx.fill();
+  ctx.fillStyle = '#a82a2a';
+  ctx.beginPath(); ctx.roundRect(-13,-82,10,7,3); ctx.fill();
+  ctx.fillStyle = '#3a2a1a';
+  ctx.beginPath(); ctx.arc(7,-78,2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(6,-73,4,0.2,Math.PI*0.7); ctx.stroke();
+  ctx.fillStyle = 'rgba(240,138,138,.6)';
+  ctx.beginPath(); ctx.arc(0,-72,3,0,Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- Dibujo: moto de papá (enduro grande) ----------
+function drawPapaMoto(x, y, phase, airborne, tilt, rider = true) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(airborne ? -0.14 : (tilt || 0));
+  const body = '#2d6fd1', accent = '#173a7a', tire = '#222', rim = '#b8c2d0';
+  const skin = '#e8b88a', jersey = '#3a3f4a';
+
+  // ruedas grandes con tacos de enduro
+  const wheelR = 21;
+  [[-38,-wheelR],[38,-wheelR]].forEach(([wx,wy]) => {
+    ctx.fillStyle = tire;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR, 0, Math.PI*2); ctx.fill();
+    // tacos
+    ctx.strokeStyle = '#111'; ctx.lineWidth = 3;
+    for (let i=0;i<8;i++) {
+      const a = phase*9 + i*Math.PI/4;
+      ctx.beginPath();
+      ctx.moveTo(wx + Math.cos(a)*(wheelR-2), wy + Math.sin(a)*(wheelR-2));
+      ctx.lineTo(wx + Math.cos(a)*(wheelR+2), wy + Math.sin(a)*(wheelR+2));
+      ctx.stroke();
+    }
+    ctx.fillStyle = rim;
+    ctx.beginPath(); ctx.arc(wx, wy, wheelR*0.42, 0, Math.PI*2); ctx.fill();
+  });
+
+  // chasis / estanque azul estilo enduro
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.moveTo(-38, -30);
+  ctx.lineTo(-16, -52);
+  ctx.lineTo(20, -54);
+  ctx.lineTo(40, -34);
+  ctx.lineTo(28, -24);
+  ctx.lineTo(-28, -24);
+  ctx.closePath(); ctx.fill();
+  // guardabarros delantero levantado
+  ctx.fillStyle = body;
+  ctx.beginPath();
+  ctx.moveTo(28,-46); ctx.quadraticCurveTo(52,-52,58,-40);
+  ctx.lineTo(52,-36); ctx.quadraticCurveTo(46,-44,30,-40);
+  ctx.closePath(); ctx.fill();
+  // número de competencia
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.roundRect(-14,-48,22,16,3); ctx.fill();
+  ctx.fillStyle = accent;
+  ctx.font = 'bold 12px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('25', -3, -40);
+  // horquilla y manubrio
+  ctx.strokeStyle = accent; ctx.lineWidth = 6; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(38,-34); ctx.lineTo(46,-66); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(40,-66); ctx.lineTo(54,-68); ctx.stroke();
+  // asiento
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.roundRect(-30, -58, 30, 8, 3); ctx.fill();
+
+  if (rider) {
+  // papá montado (más grande)
+  ctx.strokeStyle = '#4a4f5a'; ctx.lineWidth = 9;
+  ctx.beginPath(); ctx.moveTo(-12,-60); ctx.lineTo(0,-42); ctx.lineTo(-2,-26); ctx.stroke();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.ellipse(0,-24,7,4,0,0,Math.PI*2); ctx.fill();
+  ctx.save();
+  ctx.translate(-12,-60); ctx.rotate(0.32);
+  ctx.fillStyle = jersey;
+  ctx.beginPath(); ctx.roundRect(-13,-36,26,38,9); ctx.fill();
+  // franja azul del jersey
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.roundRect(-13,-20,26,8,3); ctx.fill();
+  ctx.restore();
+  ctx.strokeStyle = jersey; ctx.lineWidth = 8;
+  ctx.beginPath(); ctx.moveTo(-4,-86); ctx.lineTo(26,-74); ctx.lineTo(50,-68); ctx.stroke();
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(50,-68,5,0,Math.PI*2); ctx.fill();
+  // cabeza con casco azul
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(0, -96, 15, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.arc(0, -98, 16, Math.PI*0.8, Math.PI*2.15); ctx.fill();
+  ctx.fillStyle = accent;
+  ctx.beginPath(); ctx.roundRect(-17,-100,12,8,3); ctx.fill();
+  // visera
+  ctx.fillStyle = accent;
+  ctx.beginPath(); ctx.roundRect(4,-110,16,5,2); ctx.fill();
+  // cara
+  ctx.fillStyle = '#3a2a1a';
+  ctx.beginPath(); ctx.arc(6,-96,2.2,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(5,-90,4,0.2,Math.PI*0.7); ctx.stroke();
+  // barba corta
+  ctx.fillStyle = 'rgba(90,58,30,.5)';
+  ctx.beginPath(); ctx.arc(3,-88,7,0.1,Math.PI*0.9); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- Dibujo: papá de pie (fiesta final) ----------
+function drawPapaStand(x, y, phase) {
+  ctx.save();
+  ctx.translate(x, y);
+  const skin = '#e8b88a', jersey = '#3a3f4a', body = '#2d6fd1';
+  // piernas
+  ctx.strokeStyle = '#4a4f5a'; ctx.lineWidth = 10; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(-5,-44); ctx.lineTo(-7,-6); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(5,-44); ctx.lineTo(7,-6); ctx.stroke();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.ellipse(-9,-4,8,4,0,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(9,-4,8,4,0,0,Math.PI*2); ctx.fill();
+  // cuerpo
+  ctx.fillStyle = jersey;
+  ctx.beginPath(); ctx.roundRect(-15,-82,30,40,9); ctx.fill();
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.roundRect(-15,-56,30,8,3); ctx.fill();
+  // brazo con puño arriba celebrando (alterna)
+  const up = Math.sin(phase*5) > 0;
+  ctx.strokeStyle = jersey; ctx.lineWidth = 9;
+  ctx.fillStyle = skin;
+  if (up) {
+    ctx.beginPath(); ctx.moveTo(-13,-76); ctx.lineTo(-26,-100); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-26,-100,6,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(13,-76); ctx.lineTo(24,-58); ctx.stroke();
+    ctx.beginPath(); ctx.arc(24,-58,6,0,Math.PI*2); ctx.fill();
+  } else {
+    ctx.beginPath(); ctx.moveTo(13,-76); ctx.lineTo(26,-100); ctx.stroke();
+    ctx.beginPath(); ctx.arc(26,-100,6,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-13,-76); ctx.lineTo(-24,-58); ctx.stroke();
+    ctx.beginPath(); ctx.arc(-24,-58,6,0,Math.PI*2); ctx.fill();
+  }
+  // cabeza
+  ctx.fillStyle = skin;
+  ctx.beginPath(); ctx.arc(0, -98, 16, 0, Math.PI*2); ctx.fill();
+  // pelo corto
+  ctx.fillStyle = '#4a3620';
+  ctx.beginPath(); ctx.arc(0, -102, 16, Math.PI*1.0, Math.PI*2.0); ctx.fill();
+  // cara feliz + barba
+  ctx.fillStyle = '#3a2a1a';
+  ctx.beginPath(); ctx.arc(-5,-99,2.4,0,Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(5,-99,2.4,0,Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#3a2a1a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(0,-93,6,0.15,Math.PI-0.15); ctx.stroke();
+  ctx.fillStyle = 'rgba(90,58,30,.45)';
+  ctx.beginPath(); ctx.arc(0,-90,9,0.1,Math.PI*0.9); ctx.fill();
+  ctx.restore();
+}
+
+// ---------- Dibujo: copa gigante ----------
+function drawTrophy(x, baseY, s) {
+  ctx.save();
+  ctx.translate(x, baseY);
+  ctx.scale(s, s);
+  const gold = '#ffc63a', goldDark = '#d99a1a', goldLight = '#ffe28a';
+  // base
+  ctx.fillStyle = '#7a4a2a';
+  ctx.beginPath(); ctx.roundRect(-34, -14, 68, 14, 4); ctx.fill();
+  ctx.fillStyle = '#5a3620';
+  ctx.beginPath(); ctx.roundRect(-26, -24, 52, 10, 3); ctx.fill();
+  // placa
+  ctx.fillStyle = gold;
+  ctx.beginPath(); ctx.roundRect(-16, -12, 32, 9, 2); ctx.fill();
+  // tallo
+  ctx.fillStyle = goldDark;
+  ctx.beginPath(); ctx.roundRect(-6, -44, 12, 20, 4); ctx.fill();
+  // copa
+  ctx.fillStyle = gold;
+  ctx.beginPath();
+  ctx.moveTo(-32, -100);
+  ctx.quadraticCurveTo(-34, -52, 0, -44);
+  ctx.quadraticCurveTo(34, -52, 32, -100);
+  ctx.closePath(); ctx.fill();
+  // borde superior
+  ctx.fillStyle = goldLight;
+  ctx.beginPath(); ctx.roundRect(-34, -106, 68, 9, 4); ctx.fill();
+  // asas
+  ctx.strokeStyle = gold; ctx.lineWidth = 8; ctx.lineCap='round';
+  ctx.beginPath(); ctx.arc(-38, -84, 14, Math.PI*0.4, Math.PI*1.5); ctx.stroke();
+  ctx.beginPath(); ctx.arc(38, -84, 14, Math.PI*1.5, Math.PI*0.6); ctx.stroke();
+  // brillo
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.beginPath(); ctx.ellipse(-14, -80, 6, 16, 0.15, 0, Math.PI*2); ctx.fill();
+  // estrella
+  ctx.fillStyle = goldDark;
+  ctx.save(); ctx.translate(0, -74);
+  ctx.beginPath();
+  for (let i=0;i<10;i++) {
+    const r = i%2===0 ? 12 : 5;
+    const a = -Math.PI/2 + i*Math.PI/5;
+    ctx.lineTo(Math.cos(a)*r, Math.sin(a)*r);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+}
+
+// ---------- Dibujo: pastor alemán ----------
+function drawShepherd(d) {
+  ctx.save();
+  ctx.translate(d.x, d.y);
+  if (d.state === 'knocked') ctx.rotate(d.rot);
+  const tan = '#b5824a', black = '#2e2a26', dark = '#1a1815';
+  const bob = d.state === 'run' ? Math.sin(d.phase*20)*2 : 0;
+  ctx.translate(0, bob);
+
+  ctx.strokeStyle = black; ctx.lineWidth = 9; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(34,-42); ctx.quadraticCurveTo(48,-34,52,-20); ctx.stroke();
+
+  ctx.strokeStyle = tan; ctx.lineWidth = 8;
+  for (let i=0;i<4;i++) {
+    const px = -22 + i*16;
+    const ang = d.state === 'run' ? Math.sin(d.phase*20 + i*Math.PI/1.3)*0.6 : 0.5 - i*0.3;
+    ctx.beginPath();
+    ctx.moveTo(px, -28);
+    ctx.lineTo(px + Math.sin(ang)*17, -28 + Math.cos(ang)*26);
+    ctx.stroke();
+  }
+
+  ctx.fillStyle = tan;
+  ctx.beginPath(); ctx.ellipse(4, -42, 36, 21, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = black;
+  ctx.beginPath(); ctx.ellipse(8, -50, 30, 13, -0.08, 0, Math.PI*2); ctx.fill();
+
+  ctx.fillStyle = tan;
+  ctx.beginPath(); ctx.arc(-30, -60, 16, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = black;
+  ctx.beginPath(); ctx.arc(-30, -63, 15, Math.PI*0.9, Math.PI*2.05); ctx.fill();
+  ctx.fillStyle = tan;
+  ctx.beginPath(); ctx.ellipse(-42, -55, 11, 7, -0.1, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = dark;
+  ctx.beginPath(); ctx.arc(-51, -56, 3.2, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = black;
+  ctx.beginPath(); ctx.moveTo(-36,-72); ctx.lineTo(-33,-90); ctx.lineTo(-26,-72); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(-24,-73); ctx.lineTo(-18,-89); ctx.lineTo(-13,-70); ctx.closePath(); ctx.fill();
+  if (d.state === 'knocked') {
+    // ojitos de mareo x.x y estrellitas
+    ctx.strokeStyle = dark; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-38,-66); ctx.lineTo(-31,-59); ctx.moveTo(-31,-66); ctx.lineTo(-38,-59); ctx.stroke();
+    ctx.fillStyle = '#ffd24a'; ctx.font = '14px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('✦', -30, -95);
+    ctx.fillText('✦', -14, -100);
+  } else {
+    ctx.fillStyle = dark;
+    ctx.beginPath(); ctx.arc(-34, -62, 2.6, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#f08a8a';
+    ctx.beginPath(); ctx.ellipse(-44, -47, 3, 5, 0.3, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// ---------- Dibujo: pájaro ----------
+function drawBird(b) {
+  ctx.save();
+  ctx.translate(b.x, b.y);
+  if (b.dir < 0) ctx.scale(-1,1);
+  if (b.state !== 'fly') ctx.rotate(Math.max(0, Math.sin(b.t*4)) * 0.35);
+  const body = b.color, wing = '#5a4a8a';
+  ctx.fillStyle = body;
+  ctx.beginPath(); ctx.ellipse(0, 0, 9, 7, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(8, -6, 5.5, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#f0a030';
+  ctx.beginPath(); ctx.moveTo(12,-7); ctx.lineTo(18,-5.5); ctx.lineTo(12,-4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#222';
+  ctx.beginPath(); ctx.arc(9.5,-7,1.3,0,Math.PI*2); ctx.fill();
+  ctx.fillStyle = wing;
+  ctx.save();
+  ctx.translate(-1,-2);
+  if (b.state === 'fly') ctx.rotate(Math.sin(b.t*28)*0.9); else ctx.rotate(0.2);
+  ctx.beginPath(); ctx.ellipse(-3, 0, 8, 4, -0.4, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+  ctx.fillStyle = wing;
+  ctx.beginPath(); ctx.moveTo(-8,-1); ctx.lineTo(-15,-4); ctx.lineTo(-14,2); ctx.closePath(); ctx.fill();
+  if (b.state !== 'fly') {
+    ctx.strokeStyle = '#f0a030'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(-2,6); ctx.lineTo(-2,11); ctx.moveTo(3,6); ctx.lineTo(3,11); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// ---------- Dibujo: elementos ----------
+function drawBoneAt(x, y, s=1, rot=0) {
+  ctx.save(); ctx.translate(x,y); ctx.rotate(rot); ctx.scale(s,s);
+  ctx.fillStyle = '#fffbe8'; ctx.strokeStyle = '#d9cba0'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.roundRect(-10,-3,20,6,3); ctx.fill(); ctx.stroke();
+  [[-10,-4],[-10,4],[10,-4],[10,4]].forEach(([bx,by])=>{
+    ctx.beginPath(); ctx.arc(bx,by,4.5,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  });
+  ctx.restore();
+}
+function drawRock(o) {
+  const gy = terrainAt(o.x);
+  ctx.fillStyle = '#8a8a92';
+  ctx.beginPath();
+  ctx.moveTo(o.x - o.w/2, gy);
+  ctx.quadraticCurveTo(o.x - o.w/2, gy - o.h, o.x, gy - o.h);
+  ctx.quadraticCurveTo(o.x + o.w/2, gy - o.h, o.x + o.w/2, gy);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#a5a5ad';
+  ctx.beginPath(); ctx.ellipse(o.x - o.w*0.15, gy - o.h*0.65, o.w*0.18, o.h*0.15, -0.4, 0, Math.PI*2); ctx.fill();
+}
+function drawBush(o) {
+  const gy = terrainAt(o.x);
+  ctx.fillStyle = '#4a8a3a';
+  [[-o.w*0.25,0.8],[0,1],[o.w*0.25,0.8]].forEach(([dx,s])=>{
+    ctx.beginPath(); ctx.arc(o.x+dx, gy - o.h*0.45*s, o.h*0.5*s, 0, Math.PI*2); ctx.fill();
+  });
+  ctx.fillStyle = '#e05a7a';
+  ctx.beginPath(); ctx.arc(o.x - o.w*0.15, gy - o.h*0.6, 3, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(o.x + o.w*0.2, gy - o.h*0.4, 3, 0, Math.PI*2); ctx.fill();
+}
+function drawPuddle(o) {
+  const gy = terrainAt(o.x);
+  ctx.fillStyle = '#5aa9d6';
+  ctx.beginPath(); ctx.ellipse(o.x, gy + 6, o.w/2, 9, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.5)';
+  ctx.beginPath(); ctx.ellipse(o.x - o.w*0.18, gy + 3, o.w*0.16, 3, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,.4)'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(o.x - o.w*0.25, gy + 8);
+  ctx.quadraticCurveTo(o.x, gy + 6 + Math.sin(runPhase*4)*2, o.x + o.w*0.25, gy + 8);
+  ctx.stroke();
+}
+function drawWater(o) {
+  // franja de agua que sigue el terreno (etapa 5)
+  const x0 = o.x - o.w/2, x1 = o.x + o.w/2;
+  ctx.fillStyle = '#4a9ad6';
+  ctx.beginPath();
+  ctx.moveTo(x0, terrainAt(x0) - 2);
+  for (let x = x0; x <= x1; x += 14) {
+    ctx.lineTo(x, terrainAt(x) - 2 + Math.sin(runPhase*5 + x*0.08)*2.5);
+  }
+  ctx.lineTo(x1, terrainAt(x1) + 14);
+  for (let x = x1; x >= x0; x -= 14) ctx.lineTo(x, terrainAt(x) + 14);
+  ctx.closePath(); ctx.fill();
+  // espumita
+  ctx.fillStyle = 'rgba(255,255,255,.55)';
+  for (let x = x0 + 10; x < x1; x += 34) {
+    ctx.beginPath(); ctx.ellipse(x, terrainAt(x) - 1 + Math.sin(runPhase*5 + x*0.08)*2.5, 6, 2, 0, 0, Math.PI*2); ctx.fill();
+  }
+}
+function drawLog(o) {
+  // tronco visto de punta, rodando como rueda
+  const gy = terrainAt(o.x), r = o.w/2;
+  ctx.save();
+  ctx.translate(o.x, gy - r);
+  ctx.rotate(o.roll);
+  ctx.fillStyle = '#8a5a3a';
+  ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI*2); ctx.fill();
+  // anillos del tronco
+  ctx.strokeStyle = '#6a4228'; ctx.lineWidth = 2.5;
+  [r*0.68, r*0.42, r*0.18].forEach(rr => {
+    ctx.beginPath(); ctx.arc(0, 0, rr, 0, Math.PI*2); ctx.stroke();
+  });
+  // grieta que gira (para que se note el rodado)
+  ctx.strokeStyle = '#5a3620'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(r*0.2, 0); ctx.lineTo(r*0.92, 0); ctx.stroke();
+  // corteza
+  ctx.strokeStyle = '#6a4228'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.arc(0, 0, r-2, 0, Math.PI*2); ctx.stroke();
+  ctx.restore();
+}
+function drawBox(o) {
+  const gy = terrainAt(o.x);
+  ctx.save();
+  ctx.translate(o.x, gy);
+  const w = o.w, h1 = o.h*0.55, h2 = o.h*0.45;
+  // caja de abajo
+  ctx.fillStyle = '#c9a86b';
+  ctx.beginPath(); ctx.roundRect(-w/2, -h1, w, h1, 3); ctx.fill();
+  ctx.strokeStyle = '#a8865a'; ctx.lineWidth = 2;
+  ctx.strokeRect(-w/2, -h1, w, h1);
+  // cinta adhesiva
+  ctx.fillStyle = '#b8945a';
+  ctx.fillRect(-4, -h1, 8, h1);
+  // caja de arriba (más chica, un poco chueca)
+  ctx.save();
+  ctx.translate(2, -h1); ctx.rotate(-0.06);
+  ctx.fillStyle = '#d4b47a';
+  ctx.beginPath(); ctx.roundRect(-w*0.38, -h2, w*0.76, h2, 3); ctx.fill();
+  ctx.strokeStyle = '#a8865a'; ctx.lineWidth = 2;
+  ctx.strokeRect(-w*0.38, -h2, w*0.76, h2);
+  ctx.fillStyle = '#b8945a';
+  ctx.fillRect(-3, -h2, 6, h2);
+  // solapas abiertas
+  ctx.strokeStyle = '#a8865a'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(-w*0.38, -h2); ctx.lineTo(-w*0.48, -h2-8); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(w*0.38, -h2); ctx.lineTo(w*0.48, -h2-8); ctx.stroke();
+  ctx.restore();
+  ctx.restore();
+}
+function drawFlag(x) {
+  const gy = terrainAt(x);
+  ctx.strokeStyle = '#666'; ctx.lineWidth = 5; ctx.lineCap='round';
+  ctx.beginPath(); ctx.moveTo(x, gy); ctx.lineTo(x, gy - 120); ctx.stroke();
+  const cs = 9;
+  for (let r=0;r<4;r++) for (let c=0;c<6;c++) {
+    ctx.fillStyle = (r+c)%2===0 ? '#222' : '#fff';
+    ctx.fillRect(x + 3 + c*cs, gy - 118 + r*cs, cs, cs);
+  }
+}
+function drawTree(x, s) {
+  ctx.save(); ctx.translate(x, terrainAt(x)); ctx.scale(s,s);
+  ctx.fillStyle = '#8a5a3a';
+  ctx.fillRect(-6, -55, 12, 55);
+  ctx.fillStyle = '#5a9a4a';
+  ctx.beginPath(); ctx.arc(0, -70, 28, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(-20, -55, 20, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(20, -55, 20, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function drawCloud(c) {
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.save(); ctx.translate(c.x, c.y); ctx.scale(c.s, c.s);
+  ctx.beginPath();
+  ctx.arc(0,0,18,0,Math.PI*2); ctx.arc(20,-6,14,0,Math.PI*2); ctx.arc(-20,-4,13,0,Math.PI*2); ctx.arc(0,-12,15,0,Math.PI*2);
+  ctx.fill(); ctx.restore();
+}
+
+// ---------- Escena ----------
+function drawScene() {
+  const sky = ctx.createLinearGradient(0,0,0,H);
+  if (stage === 3) { sky.addColorStop(0,'#f5a86b'); sky.addColorStop(0.6,'#f8cfa0'); sky.addColorStop(1,'#e8e0c0'); }
+  else if (stage === 5) { sky.addColorStop(0,'#5a8ad6'); sky.addColorStop(0.65,'#9ac0e8'); sky.addColorStop(1,'#d0e4d8'); }
+  else { sky.addColorStop(0,'#7ec8e3'); sky.addColorStop(0.7,'#b8e4f0'); sky.addColorStop(1,'#d8f0e8'); }
+  ctx.fillStyle = sky; ctx.fillRect(0,0,W,H);
+
+  ctx.fillStyle = stage === 3 ? '#ff9a4a' : '#ffdd66';
+  ctx.beginPath(); ctx.arc(W*0.85, H*0.15, Math.min(W,H)*0.06, 0, Math.PI*2); ctx.fill();
+
+  clouds.forEach(c => drawCloud(c));
+
+  ctx.fillStyle = stage === 3 ? '#c9a86b' : stage === 5 ? '#7aa88a' : '#a8d8a0';
+  hills.forEach(h => {
+    const base = groundLevel();
+    ctx.beginPath();
+    ctx.moveTo(h.x, base);
+    ctx.quadraticCurveTo(h.x + h.w/2, base - h.h*2, h.x + h.w, base);
+    ctx.fill();
+  });
+
+  trees.forEach(tr => drawTree(tr.x, tr.s));
+
+  // suelo (plano o con cerros)
+  if (stage === 5) {
+    const step = 20;
+    ctx.fillStyle = '#6ab04c';
+    ctx.beginPath();
+    ctx.moveTo(0, H);
+    for (let x = 0; x <= W + step; x += step) ctx.lineTo(x, terrainAt(x));
+    ctx.lineTo(W, H);
+    ctx.closePath(); ctx.fill();
+    // huella de tierra del circuito
+    ctx.fillStyle = '#d9b98a';
+    ctx.beginPath();
+    for (let x = 0; x <= W + step; x += step) {
+      const y = terrainAt(x) + 12;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    for (let x = W + step; x >= 0; x -= step) ctx.lineTo(x, terrainAt(x) + 34);
+    ctx.closePath(); ctx.fill();
+    // borde de pasto
+    ctx.strokeStyle = '#5a9a3c'; ctx.lineWidth = 5;
+    ctx.beginPath();
+    for (let x = 0; x <= W + step; x += step) {
+      const y = terrainAt(x) + 2;
+      if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  } else {
+    const gy = groundLevel();
+    ctx.fillStyle = '#6ab04c';
+    ctx.fillRect(0, gy, W, H - gy);
+    ctx.fillStyle = '#5a9a3c';
+    ctx.fillRect(0, gy, W, 6);
+    ctx.fillStyle = '#d9b98a';
+    ctx.fillRect(0, gy + 14, W, Math.max(24, (H-gy)*0.35));
+  }
+}
+
+function moveWorld(dt, sp) {
+  clouds.forEach(c => { c.x -= sp*0.12*dt; if (c.x < -80) { c.x = W + 80; c.y = H*0.08 + Math.random()*H*0.22; } });
+  hills.forEach(h => { h.x -= sp*0.25*dt; if (h.x + h.w < 0) h.x = W; });
+  trees.forEach(tr => { tr.x -= sp*0.6*dt; if (tr.x < -60) { tr.x = W + 60 + Math.random()*120; tr.s = 0.8+Math.random()*0.5; } });
+}
+
+function spawnParticleBurst(x, y, color, n=10) {
+  for (let i=0;i<n;i++) particles.push({
+    x, y, vx:(Math.random()-0.5)*260, vy:-Math.random()*300-60,
+    life: 0.7+Math.random()*0.5, t:0, color, r: 3+Math.random()*3, grav: 1
+  });
+}
+
+// ---------- Update ----------
+function updateRun(dt) {
+  const cfg = STAGES[stage];
+  t += dt;
+  runPhase += dt;
+  moveWorld(dt, speed);
+  if (stage === 5) scrollX += speed*dt;
+
+  // física del grupo
+  if (cfg.mode === 'punch') {
+    player.y = terrainAt(player.x);
+    player.onGround = true;
+    if (player.punchT > 0) player.punchT -= dt;
+  } else {
+    if (!player.onGround) {
+      const gBase = Math.max(H*3.4, 1700);
+      const g = (player.jumpHeld && player.vy < 0) ? gBase * 0.42 : gBase;
+      player.vy += g * dt;
+      player.y += player.vy * dt;
+      if (player.y >= terrainAt(player.x)) {
+        player.y = terrainAt(player.x); player.vy = 0; player.onGround = true;
+        spawnParticleBurst(player.x, player.y, '#d9b98a', 5);
+      }
+    } else {
+      player.y = terrainAt(player.x); // sigue los cerros
+    }
+  }
+
+  // spawn obstáculos
+  nextObs -= dt;
+  if (nextObs <= 0 && t < cfg.dur - 3) {
+    if (cfg.water) {
+      obstacles.push({ x: W + 120, w: 95 + Math.random()*60, h: 0, type: 'water', splashed:false });
+      nextObs = 2.0 + Math.random()*1.4;
+    } else if (stage === 4) {
+      // todo lo que viene se destruye con el combo: troncos rodantes, cajas, piedras y arbustos
+      const r = Math.random();
+      if (r < 0.28) {
+        // tronco que viene rodando en contra
+        obstacles.push({ x: W + 100, w: 52, h: 52, type: 'log', roll: 0, extra: baseSpeed()*0.5, hit:false, dead:false });
+      } else if (r < 0.56) {
+        obstacles.push({ x: W + 80, w: 54, h: 60, type: 'box', hit:false, dead:false });
+      } else if (r < 0.8) {
+        obstacles.push({ x: W + 80, w: 46 + Math.random()*20, h: 34 + Math.random()*22, type: 'rock', hit:false, dead:false });
+      } else {
+        obstacles.push({ x: W + 80, w: 46 + Math.random()*20, h: 34 + Math.random()*22, type: 'bush', hit:false, dead:false });
+      }
+      nextObs = 1.7 + Math.random()*1.3;
+    } else {
+      const r = Math.random();
+      let type;
+      if (cfg.puddles && r < 0.35) type = 'puddle';
+      else type = r < 0.68 ? 'rock' : 'bush';
+      const isPuddle = type === 'puddle';
+      obstacles.push({
+        x: W + 80,
+        w: isPuddle ? 70 + Math.random()*55 : 46 + Math.random()*20,
+        h: isPuddle ? 0 : 34 + Math.random()*22,
+        type, hit:false, splashed:false, dead:false
+      });
+      nextObs = (stage === 3 ? 1.4 : 1.6) + Math.random()*1.4;
+    }
+  }
+  // huesos
+  nextBone -= dt;
+  if (nextBone <= 0 && t < cfg.dur - 2) {
+    const inAir = cfg.mode === 'punch' ? false : Math.random() < 0.5;
+    bones.push({ x: W + 40, yOff: inAir ? 90 + Math.random()*50 : 26, rot: 0, got:false });
+    nextBone = 1.1 + Math.random()*1.3;
+  }
+  // pastor alemán
+  if (cfg.dogs) {
+    nextDog -= dt;
+    if (nextDog <= 0 && t < cfg.dur - 5) {
+      dogs.push({ x: W + 100, y: terrainAt(W+100), phase: Math.random()*10, hit: false, barked: false, state:'run', vx:0, vy:0, rot:0 });
+      nextDog = 7 + Math.random()*5;
+    }
+  }
+  // bandada de ~10 pájaros
+  nextBird -= dt;
+  if (nextBird <= 0 && t < cfg.dur - 4) {
+    const bx = W + 60;
+    const colors = ['#8a6ad1','#d16a8a','#6a9ad1','#6ad1a0','#d1b06a'];
+    const n = 9 + Math.floor(Math.random()*3); // 9 a 11
+    for (let i=0;i<n;i++) {
+      birds.push({
+        x: bx + i*24 + Math.random()*16, y: 0,
+        state: 'ground', t: Math.random()*3, dir: Math.random()<0.5?-1:1,
+        vx: 0, vy: 0, color: colors[Math.floor(Math.random()*colors.length)]
+      });
+    }
+    nextBird = 6.5 + Math.random()*4;
+  }
+
+  // mover obstáculos + colisiones
+  obstacles.forEach(o => {
+    o.x -= (speed + (o.extra || 0)) * dt;
+    if (o.type === 'log') o.roll -= dt * 7;
+  });
+  obstacles = obstacles.filter(o => o.x > -160);
+  bones.forEach(b => { b.x -= speed*dt; b.rot += dt*3; });
+  bones = bones.filter(b => b.x > -60 && !b.got);
+
+  obstacles.forEach(o => {
+    if (o.type === 'puddle' || o.type === 'water') {
+      if (!o.splashed && player.onGround &&
+          player.x + 30 > o.x - o.w/2 && player.x - 20 < o.x + o.w/2) {
+        o.splashed = true;
+        sndSplash();
+        const big = o.type === 'water';
+        spawnParticleBurst(player.x + 10, player.y + 4, '#7ec8f0', big ? 20 : 14);
+        splashTexts.push({ x: player.x + 10, y: player.y - 95, t: 0, big });
+      }
+    } else {
+      if (!o.hit &&
+          player.x - 30 < o.x + o.w/2 - 8 && player.x + 40 > o.x - o.w/2 + 8 &&
+          player.y > terrainAt(o.x) - o.h + 10) {
+        o.hit = true; bumpFlash = 0.35; ouchT = 1.0; sndBump();
+      }
+    }
+  });
+  bones.forEach(b => {
+    const by = terrainAt(b.x) - b.yOff;
+    const dx = (player.x + 10) - b.x, dy = (player.y - 45) - by;
+    if (dx*dx + dy*dy < 48*48) { b.got = true; bonesCount++; sndBone(); spawnParticleBurst(b.x, by, '#ffe28a', 8); }
+  });
+
+  // perros
+  dogs.forEach(d => {
+    if (d.state === 'run') {
+      d.x -= (speed + baseSpeed()*0.55) * dt;
+      d.y = terrainAt(d.x);
+      d.phase += dt;
+      if (!d.barked && d.x < W - 60) { d.barked = true; sndBark(); }
+      if (!d.hit && Math.abs(d.x - player.x) < 55 && player.y > terrainAt(d.x) - 62) {
+        d.hit = true; bumpFlash = 0.35; ouchT = 1.0; sndBump();
+      }
+    } else {
+      // volando por el combo de Franco, girando de espaldas
+      d.x += (d.vx - speed) * dt;
+      d.y += d.vy * dt;
+      d.vy += 700 * dt;
+      d.rot += dt * 7;
+    }
+  });
+  dogs = dogs.filter(d => d.x > -140 && d.x < W + 300 && d.y < H + 150);
+
+  // pájaros
+  birds.forEach(b => {
+    b.t += dt;
+    if (b.state === 'ground') {
+      b.x -= speed * dt;
+      b.y = terrainAt(b.x) - 10;
+      if (b.x - player.x < 200 && b.x > player.x - 40) {
+        b.state = 'fly';
+        b.vx = 60 + Math.random()*100;
+        b.vy = -(200 + Math.random()*160);
+        b.dir = 1;
+        if (Math.random() < 0.4) sndChirp();
+      }
+    } else {
+      b.x += (b.vx - speed) * dt;
+      b.y += b.vy * dt;
+      b.vy -= 30 * dt;
+    }
+  });
+  birds = birds.filter(b => b.x > -80 && b.y > -80);
+
+  splashTexts.forEach(s => { s.t += dt; s.y -= 30*dt; });
+  splashTexts = splashTexts.filter(s => s.t < 1);
+  powTexts.forEach(p => { p.t += dt; p.y -= 40*dt; });
+  powTexts = powTexts.filter(p => p.t < 0.9);
+
+  if (bumpFlash > 0) bumpFlash -= dt;
+  if (ouchT > 0) ouchT -= dt;
+
+  if ((stage === 3 || stage === 5) && Math.random() < dt*0.7) sndMoto();
+
+  // fin de etapa
+  if (t >= cfg.dur) {
+    obstacles = []; dogs = dogs.filter(d => d.state === 'knocked');
+    birds.forEach(b => { if (b.state==='ground'){ b.state='fly'; b.vx=80; b.vy=-260; } });
+    if (stage === 1) { state = 'arrive'; stateT = 0; francoX = W + 80; }
+    else if (stage === 4) { state = 'protect'; stateT = 0; sndWin(); }
+    else if (stage === 5) { state = 'finish'; stateT = 0; flagX = W + 120; }
+    else { showCard(stage + 1); }
+  }
+}
+
+function updateFlyingBirds(dt, worldSp) {
+  birds.forEach(b => {
+    b.t += dt;
+    if (b.state === 'fly') { b.x += (b.vx - worldSp) * dt; b.y += b.vy * dt; b.vy -= 30*dt; }
+  });
+  birds = birds.filter(b => b.y > -80);
+}
+
+function update(dt) {
+  if (state === 'card') {
+    stateT += dt;
+    if (stateT > 2.6) beginStage(stage);
+  }
+  else if (state === 'run') updateRun(dt);
+  else if (state === 'arrive') {
+    runPhase += dt; stateT += dt;
+    moveWorld(dt, speed*0.6);
+    updateFlyingBirds(dt, speed*0.6);
+    francoX -= speed*0.75*dt;
+    const meetX = Math.min(W*0.62, W - 140);
+    if (francoX <= meetX) {
+      francoX = meetX;
+      player.x += speed*0.7*dt;
+      if (player.x >= francoX - 85) {
+        player.x = francoX - 85;
+        state = 'meet'; stateT = 0; sndWin();
+      }
+    }
+  }
+  else if (state === 'meet') {
+    runPhase += dt; stateT += dt;
+    if (Math.random() < dt*6) {
+      hearts.push({ x: player.x + Math.random()*(francoX - player.x), y: groundLevel() - 100 - Math.random()*40,
+                    vy: -40 - Math.random()*40, t:0, life: 2, s: 0.7+Math.random()*0.8 });
+    }
+    if (stateT > 3.2) showCard(2);
+  }
+  else if (state === 'protect') {
+    // fin de la etapa 4: mamá orgullosa con corazones, Franco mostrando los músculos
+    runPhase += dt; stateT += dt;
+    if (Math.random() < dt*9) {
+      const jx = player.x - 150;
+      hearts.push({ x: jx - 25 + Math.random()*50, y: groundLevel() - 95 - Math.random()*20,
+                    vy: -50 - Math.random()*40, t:0, life: 2.2, s: 0.8+Math.random()*0.9 });
+    }
+    if (stateT > 3.6) showCard(5);
+  }
+  else if (state === 'finish') {
+    runPhase += dt; stateT += dt;
+    moveWorld(dt, speed);
+    scrollX += speed*dt;
+    updateFlyingBirds(dt, speed);
+    player.y = terrainAt(player.x);
+    flagX -= speed*dt;
+    const stopX = player.x + 80;
+    if (flagX <= stopX) {
+      flagX = stopX;
+      state = 'party'; partyT = 0; sndTrophy();
+    }
+  }
+  else if (state === 'party') {
+    partyT += dt; runPhase += dt;
+    if (Math.random() < dt*8) {
+      hearts.push({ x: W*0.2 + Math.random()*W*0.6, y: terrainAt(W/2) - 120 - Math.random()*40,
+                    vy: -40 - Math.random()*40, t:0, life: 2, s: 0.7+Math.random()*0.8 });
+    }
+    if (Math.random() < dt*16) {
+      particles.push({ x: Math.random()*W, y: -10, vx:(Math.random()-0.5)*60, vy: 80+Math.random()*100,
+                       life: 3, t:0, color: ['#ff6b8a','#ffd166','#6bd1ff','#9be06b','#c79bff'][Math.floor(Math.random()*5)], r: 4+Math.random()*3, grav:0.1 });
+    }
+  }
+
+  hearts.forEach(hh => { hh.t += dt; hh.y += hh.vy*dt; });
+  hearts = hearts.filter(hh => hh.t < hh.life);
+  particles.forEach(p => { p.t += dt; p.x += p.vx*dt; p.y += p.vy*dt; p.vy += 500*dt*(p.grav!==undefined?p.grav:1); });
+  particles = particles.filter(p => p.t < p.life);
+}
+
+// ---------- HUD ----------
+function drawHUD() {
+  const cfg = STAGES[stage];
+  const bw = Math.min(W*0.55, 440), bx = (W-bw)/2, by = 22;
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.beginPath(); ctx.roundRect(bx, by, bw, 16, 8); ctx.fill();
+  const prog = Math.min(t / cfg.dur, 1);
+  ctx.fillStyle = '#e8974a';
+  ctx.beginPath(); ctx.roundRect(bx, by, Math.max(16, bw*prog), 16, 8); ctx.fill();
+  ctx.font = '22px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(cfg.goal, bx + bw + 20, by + 8);
+  ctx.fillText(cfg.marker, bx + bw*prog, by + 8);
+
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.beginPath(); ctx.roundRect(bx, by + 24, 92, 24, 12); ctx.fill();
+  ctx.fillStyle = '#3a5a6a'; ctx.font = 'bold 14px "Comic Sans MS",sans-serif';
+  ctx.fillText(cfg.title, bx + 46, by + 37);
+
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.beginPath(); ctx.roundRect(16, 14, 96, 34, 17); ctx.fill();
+  drawBoneAt(38, 31, 1.1, -0.3);
+  ctx.fillStyle = '#3a5a6a'; ctx.font = 'bold 20px "Comic Sans MS",sans-serif'; ctx.textAlign='left';
+  ctx.fillText('× ' + bonesCount, 56, 32);
+  ctx.textBaseline = 'alphabetic';
+
+  if (ouchT > 0) {
+    ctx.fillStyle = '#c0392b'; ctx.font = 'bold 26px "Comic Sans MS",sans-serif'; ctx.textAlign='center';
+    ctx.fillText('¡Uy!', player.x + 20, player.y - 115);
+  }
+}
+
+function bigText(txt, y, size, sub) {
+  ctx.textAlign='center'; ctx.lineJoin='round';
+  ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e8974a';
+  ctx.lineWidth = sub ? 4 : 6;
+  ctx.font = 'bold ' + size + 'px "Comic Sans MS",sans-serif';
+  ctx.strokeText(txt, W/2, y);
+  ctx.fillText(txt, W/2, y);
+}
+
+// ---------- Draw ----------
+function drawPlayers(happy) {
+  const yP = player.y;
+  if (bumpFlash > 0 && Math.floor(bumpFlash*20)%2===0) ctx.globalAlpha = 0.4;
+
+  if (stage === 1) {
+    drawYoshi(player.x, yP, runPhase, !player.onGround, happy, false);
+  }
+  else if (stage === 2) {
+    const fx = player.x - 95;
+    const hp = francoHandPoint(fx, yP);
+    const cp = yoshiCollarPoint(player.x, yP);
+    ctx.strokeStyle = '#c0392b'; ctx.lineWidth = 3; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.moveTo(hp.x, hp.y);
+    ctx.quadraticCurveTo((hp.x+cp.x)/2, Math.max(hp.y, cp.y) + 18, cp.x, cp.y);
+    ctx.stroke();
+    drawFranco(fx, yP, runPhase, 'walk');
+    drawYoshi(player.x, yP, runPhase, !player.onGround, happy, true);
+  }
+  else if (stage === 3) {
+    drawFrancoMoto(player.x - 100, yP, runPhase, !player.onGround, 0);
+    drawYoshi(player.x, yP, runPhase, !player.onGround, true, true);
+  }
+  else if (stage === 4) {
+    // Jackie atrás, Yoshi al medio, Franco adelante protegiendo
+    drawJackie(player.x - 150, yP, runPhase, 'walk');
+    drawYoshi(player.x - 75, yP, runPhase, false, true, true);
+    drawFranco(player.x, yP, runPhase, 'punchwalk', player.punchT);
+  }
+  else if (stage === 5) {
+    // papá adelante, Franco atrás; ambos siguen su propio terreno + salto compartido
+    const jumpOff = player.y - terrainAt(player.x);
+    const fx = player.x - 95;
+    const fy = terrainAt(fx) + jumpOff;
+    drawFrancoMoto(fx, fy, runPhase, !player.onGround, player.onGround ? terrainSlope(fx) : 0);
+    drawPapaMoto(player.x, yP, runPhase, !player.onGround, player.onGround ? terrainSlope(player.x) : 0);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function draw() {
+  drawScene();
+
+  bones.forEach(b => drawBoneAt(b.x, terrainAt(b.x) - b.yOff, 1.3, b.rot));
+  obstacles.forEach(o => {
+    if (o.type === 'water') drawWater(o);
+    else if (o.type === 'puddle') drawPuddle(o);
+    else if (o.type === 'rock') drawRock(o);
+    else if (o.type === 'log') drawLog(o);
+    else if (o.type === 'box') drawBox(o);
+    else drawBush(o);
+  });
+  birds.forEach(b => drawBird(b));
+  dogs.forEach(d => drawShepherd(d));
+
+  if (state === 'card') {
+    const cfg = STAGES[stage];
+    ctx.fillStyle = 'rgba(58,90,106,.55)';
+    ctx.fillRect(0,0,W,H);
+    bigText(cfg.title, H*0.4, Math.min(56, W*0.08));
+    bigText(cfg.sub, H*0.52, Math.min(26, W*0.036), true);
+    if (stateT > 0.8) bigText('Toca para empezar', H*0.66, Math.min(20, W*0.03), true);
+  }
+  else if (state === 'run') {
+    drawPlayers(false);
+    drawHUD();
+    splashTexts.forEach(s => {
+      ctx.globalAlpha = Math.max(0, 1 - s.t);
+      ctx.fillStyle = '#2d6fd1'; ctx.font = 'bold ' + (s.big ? 32 : 26) + 'px "Comic Sans MS",sans-serif'; ctx.textAlign='center';
+      ctx.fillText(s.big ? '¡Al agua! 💦' : '¡Splash! 💦', s.x, s.y);
+      ctx.globalAlpha = 1;
+    });
+    powTexts.forEach(p => {
+      ctx.globalAlpha = Math.max(0, 1 - p.t/0.9);
+      ctx.fillStyle = '#e8452a'; ctx.font = 'bold 34px "Comic Sans MS",sans-serif'; ctx.textAlign='center';
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 5; ctx.lineJoin = 'round';
+      ctx.strokeText('¡POW! 💥', p.x, p.y);
+      ctx.fillText('¡POW! 💥', p.x, p.y);
+      ctx.globalAlpha = 1;
+    });
+  }
+  else if (state === 'arrive') {
+    drawYoshi(player.x, player.y, runPhase, false, true, false);
+    drawFranco(francoX, groundLevel(), runPhase, 'stand');
+    bigText('¡Ahí está Franco!', H*0.2, Math.min(38, W*0.05));
+  }
+  else if (state === 'meet') {
+    const hop = Math.abs(Math.sin(runPhase*6))*30;
+    drawYoshi(player.x, groundLevel() - hop, runPhase, hop > 4, true, false);
+    drawFranco(francoX, groundLevel(), runPhase, 'jumpparty');
+    bigText('¡Se encontraron! 🎉', H*0.2, Math.min(40, W*0.055));
+  }
+  else if (state === 'protect') {
+    const gy = groundLevel();
+    drawJackie(player.x - 150, gy, runPhase, 'stand');
+    const hop = Math.abs(Math.sin(runPhase*6))*26;
+    drawYoshi(player.x - 75, gy - hop, runPhase, hop > 4, true, true);
+    drawFranco(player.x, gy, runPhase, 'muscles');
+    bigText('¡Franco protegió a mamá! 💪', H*0.2, Math.min(38, W*0.05));
+  }
+  else if (state === 'finish') {
+    drawFlag(flagX);
+    drawPlayers(true);
+    bigText('¡Ahí está la meta!', H*0.2, Math.min(38, W*0.05));
+  }
+  else if (state === 'party') {
+    // COPA GIGANTE al centro, familia completa celebrando
+    const cx = W*0.5;
+    const cupBase = terrainAt(cx);
+    const cupScale = Math.min(W, H) * 0.0032;
+    drawTrophy(cx, cupBase, Math.max(1.6, cupScale));
+
+    drawFlag(flagX);
+    // motos estacionadas a la izquierda (sin jinete: ¡ya se bajaron a celebrar!)
+    drawPapaMoto(W*0.1, terrainAt(W*0.1), 0, false, terrainSlope(W*0.1), false);
+    drawFrancoMoto(W*0.2, terrainAt(W*0.2), 0, false, terrainSlope(W*0.2), false);
+    // papá y Franco celebrando a la derecha de la copa
+    drawPapaStand(cx + Math.min(W,H)*0.24, terrainAt(cx + Math.min(W,H)*0.24), runPhase);
+    const hop = Math.abs(Math.sin(runPhase*6))*26;
+    drawFranco(cx + Math.min(W,H)*0.36, terrainAt(cx + Math.min(W,H)*0.36) - hop, runPhase, 'jumpparty');
+    // Jackie y Yoshi llegaron a celebrar también, a la izquierda
+    drawJackie(cx - Math.min(W,H)*0.26, terrainAt(cx - Math.min(W,H)*0.26), runPhase, 'stand');
+    const hop2 = Math.abs(Math.sin(runPhase*6 + 1))*28;
+    drawYoshi(cx - Math.min(W,H)*0.38, terrainAt(cx - Math.min(W,H)*0.38) - hop2, runPhase, hop2 > 4, true, false);
+
+    bigText('¡GANARON LA GRAN COPA! 🏆', H*0.14, Math.min(44, W*0.055));
+    bigText('La familia juntó ' + bonesCount + ' huesitos 🦴', H*0.24, Math.min(24, W*0.033), true);
+
+    if (partyT > 2.5) {
+      const pulse = 1 + Math.sin(runPhase*4)*0.05;
+      ctx.save(); ctx.translate(W/2, H*0.9); ctx.scale(pulse, pulse);
+      ctx.fillStyle = '#e8974a';
+      ctx.beginPath(); ctx.roundRect(-140, -26, 280, 52, 26); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 22px "Comic Sans MS",sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+      ctx.fillText('Tocar para jugar otra vez', 0, 1);
+      ctx.restore();
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  hearts.forEach(hh => {
+    ctx.globalAlpha = Math.max(0, 1 - hh.t/hh.life);
+    ctx.font = (22*hh.s) + 'px sans-serif'; ctx.textAlign='center';
+    ctx.fillText('❤️', hh.x, hh.y);
+    ctx.globalAlpha = 1;
+  });
+  particles.forEach(p => {
+    ctx.globalAlpha = Math.max(0, 1 - p.t/p.life);
+    ctx.fillStyle = p.color;
+    ctx.beginPath(); ctx.arc(p.x, p.y, p.r, 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+}
+
+function frame(ts) {
+  requestAnimationFrame(frame); // pedirlo primero: si algo falla, el juego no se congela
+  const dt = Math.min((ts - last)/1000, 0.05);
+  last = ts;
+  if (portraitBlocked) return; // en vertical: juego en pausa hasta que giren el teléfono
+  if (state !== 'menu') {
+    try { update(dt); draw(); }
+    catch(err) { console.error(err); }
+  }
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
