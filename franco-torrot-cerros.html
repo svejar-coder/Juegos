@@ -5,50 +5,82 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Franco y su Torrot: Rey de los Cerros</title>
 <style>
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; -webkit-user-select:none;}
-  html,body{margin:0;padding:0;width:100%;height:100%;background:#12100d;overflow:hidden;touch-action:manipulation;
-    font-family:'Comic Sans MS','Chalkboard SE',sans-serif;}
-  #app{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#12100d;}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;}
+  html,body{margin:0;padding:0;width:100%;height:100%;overflow:hidden;touch-action:manipulation;
+    font-family:'Trebuchet MS','Comic Sans MS','Chalkboard SE',system-ui,sans-serif;
+    background:
+      radial-gradient(circle at 18% 12%, rgba(255,218,97,.20), transparent 24%),
+      radial-gradient(circle at 82% 18%, rgba(77,189,255,.22), transparent 28%),
+      linear-gradient(135deg,#070912 0%,#12100d 45%,#24140c 100%);
+    color:#fff;}
+  #app{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:10px;
+    background:
+      radial-gradient(circle at 50% 50%, rgba(255,255,255,.06), transparent 52%),
+      linear-gradient(180deg,rgba(255,255,255,.02),rgba(0,0,0,.12));}
   #stage{position:relative;
     width:min(100vw, calc(100vh * 16 / 9));
     height:min(100vh, calc(100vw * 9 / 16));
-    background:#000;overflow:hidden;box-shadow:0 0 60px rgba(0,0,0,.7);}
-  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;}
+    background:#000;overflow:hidden;border-radius:26px;
+    border:5px solid rgba(255,255,255,.88);
+    box-shadow:
+      0 0 0 4px rgba(20,48,110,.85),
+      0 28px 85px rgba(0,0,0,.72),
+      inset 0 0 80px rgba(0,0,0,.16);}
+  #stage:before{content:"";position:absolute;inset:0;z-index:3;pointer-events:none;border-radius:20px;
+    box-shadow:inset 0 0 0 2px rgba(255,255,255,.14), inset 0 0 120px rgba(0,0,0,.28);}
+  canvas{position:absolute;inset:0;width:100%;height:100%;display:block;filter:saturate(1.09) contrast(1.03);}
   .screen{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
-    text-align:center;background:rgba(18,12,8,.5);padding:4% 6%;}
+    text-align:center;padding:4% 6%;overflow:hidden;
+    background:
+      radial-gradient(circle at 50% 26%, rgba(255,255,255,.18), transparent 24%),
+      radial-gradient(circle at 20% 15%, rgba(255,217,74,.24), transparent 25%),
+      radial-gradient(circle at 82% 24%, rgba(90,208,255,.22), transparent 24%),
+      linear-gradient(180deg,rgba(12,18,36,.42),rgba(12,8,4,.62));
+    backdrop-filter:blur(7px) saturate(1.15);}
+  .screen:before{content:"";position:absolute;inset:5% 6%;border:2px solid rgba(255,255,255,.18);border-radius:34px;
+    box-shadow:inset 0 0 50px rgba(255,255,255,.07);pointer-events:none;}
   .hidden{display:none !important;}
-  h1.title{color:#fff;font-size:clamp(26px,5.5vw,50px);margin:0 0 6px 0;line-height:1.1;
-    text-shadow:3px 3px 0 #1e3a8a, -2px -2px 0 rgba(0,0,0,.3);}
-  .sub{color:#ffe9b8;font-size:clamp(13px,2.4vw,19px);margin:0 0 20px 0;font-weight:bold;
-    text-shadow:2px 2px 0 rgba(0,0,0,.5);}
-  .btn{font-family:inherit;font-weight:bold;background:linear-gradient(180deg,#3a6ee8,#2456c4);color:#fff;
-    border:4px solid #fff;border-radius:20px;padding:14px 40px;font-size:clamp(18px,3.4vw,26px);
-    box-shadow:0 6px 0 #14306e,0 10px 24px rgba(0,0,0,.5);cursor:pointer;margin-top:8px;transition:transform .08s;}
-  .btn:active{transform:translateY(4px);box-shadow:0 2px 0 #14306e;}
-  .howto{color:#fff;font-size:clamp(11px,2vw,15px);max-width:540px;line-height:1.55;margin-top:18px;
-    text-shadow:1px 1px 0 rgba(0,0,0,.6);}
-  .howto b{color:#ffd94a;}
-  #hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:10px 14px;pointer-events:none;}
-  #stageLabel{color:#fff;font-weight:bold;font-size:clamp(12px,2.2vw,17px);text-shadow:2px 2px 0 rgba(0,0,0,.6);white-space:nowrap;}
-  #progressWrap{flex:1;height:16px;background:rgba(0,0,0,.35);border:3px solid #fff;border-radius:12px;overflow:hidden;}
-  #progressBar{height:100%;width:0%;background:linear-gradient(90deg,#5ad0ff,#2456c4);transition:width .1s linear;}
-  #posLabel{color:#fff;font-weight:bold;font-size:clamp(12px,2.2vw,17px);text-shadow:2px 2px 0 rgba(0,0,0,.6);min-width:52px;text-align:right;}
-  #btnSound{pointer-events:auto;background:rgba(0,0,0,.35);border:2px solid rgba(255,255,255,.7);
-    border-radius:10px;color:#fff;font-size:clamp(14px,2.4vw,18px);padding:2px 9px;font-family:inherit;cursor:pointer;}
-  .medalRow{font-size:clamp(30px,6vw,48px);margin:4px 0 10px 0;}
-  #timesList{color:#ffe9b8;font-size:clamp(12px,2vw,15px);margin-bottom:10px;line-height:1.6;text-shadow:1px 1px 0 rgba(0,0,0,.5);}
-  #tapHint{position:absolute;bottom:3%;left:0;right:0;text-align:center;color:rgba(255,255,255,.8);
-    font-size:clamp(12px,2vw,15px);pointer-events:none;text-shadow:1px 1px 0 rgba(0,0,0,.6);}
-  #rotateOverlay{position:fixed;inset:0;z-index:100;background:#12100d;color:#fff;
+  h1.title{position:relative;color:#fff;font-size:clamp(28px,5.8vw,58px);margin:0 0 8px 0;line-height:1.04;
+    letter-spacing:-.03em;font-weight:1000;
+    text-shadow:0 6px 0 #14306e,0 10px 20px rgba(0,0,0,.45),-2px -2px 0 rgba(255,255,255,.18);}
+  h1.title:after{content:"";position:absolute;left:8%;right:8%;bottom:-10px;height:5px;border-radius:999px;
+    background:linear-gradient(90deg,transparent,#ffd94a,#5ad0ff,transparent);opacity:.85;}
+  .sub{color:#fff4c9;font-size:clamp(13px,2.35vw,20px);margin:6px 0 22px 0;font-weight:900;
+    text-shadow:0 3px 0 rgba(0,0,0,.45),0 0 12px rgba(255,217,74,.28);}
+  .btn{font-family:inherit;font-weight:1000;background:linear-gradient(180deg,#5aa5ff,#2456c4);color:#fff;
+    border:4px solid #fff;border-radius:22px;padding:14px 40px;font-size:clamp(18px,3.3vw,27px);
+    box-shadow:0 8px 0 #14306e,0 16px 32px rgba(0,0,0,.48),inset 0 2px 0 rgba(255,255,255,.35);
+    cursor:pointer;margin-top:8px;transition:transform .08s,filter .12s;}
+  .btn:hover{filter:brightness(1.08) saturate(1.08);}
+  .btn:active{transform:translateY(5px);box-shadow:0 3px 0 #14306e,0 10px 20px rgba(0,0,0,.42),inset 0 2px 0 rgba(255,255,255,.25);}
+  .howto{color:#fff;font-size:clamp(11px,1.95vw,16px);max-width:640px;line-height:1.58;margin-top:20px;font-weight:800;
+    background:rgba(4,10,24,.42);border:2px solid rgba(255,255,255,.22);border-radius:22px;padding:14px 18px;
+    box-shadow:0 14px 32px rgba(0,0,0,.28), inset 0 1px 0 rgba(255,255,255,.16);
+    text-shadow:1px 2px 0 rgba(0,0,0,.5);}
+  .howto b{color:#ffd94a;text-shadow:0 0 10px rgba(255,217,74,.35);}
+  #hud{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:10px;padding:12px 16px;pointer-events:none;z-index:5;}
+  #stageLabel,#posLabel{color:#fff;font-weight:1000;font-size:clamp(12px,2.1vw,18px);white-space:nowrap;
+    background:rgba(6,13,28,.46);border:2px solid rgba(255,255,255,.48);border-radius:999px;padding:6px 12px;
+    box-shadow:0 6px 18px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.2);
+    text-shadow:0 2px 0 rgba(0,0,0,.55);backdrop-filter:blur(6px);}
+  #progressWrap{flex:1;height:18px;background:rgba(0,0,0,.34);border:3px solid rgba(255,255,255,.88);border-radius:999px;overflow:hidden;
+    box-shadow:0 6px 18px rgba(0,0,0,.22),inset 0 2px 8px rgba(0,0,0,.3);}
+  #progressBar{height:100%;width:0%;background:linear-gradient(90deg,#6df2ff,#5ad0ff,#2456c4,#8f7bff);transition:width .1s linear;
+    box-shadow:0 0 16px rgba(90,208,255,.75);}
+  #posLabel{min-width:62px;text-align:center;}
+  #btnSound{pointer-events:auto;background:rgba(6,13,28,.52);border:2px solid rgba(255,255,255,.74);
+    border-radius:14px;color:#fff;font-size:clamp(14px,2.3vw,18px);padding:5px 10px;font-family:inherit;cursor:pointer;
+    box-shadow:0 6px 18px rgba(0,0,0,.25);backdrop-filter:blur(6px);}
+  .medalRow{font-size:clamp(34px,6.4vw,56px);margin:8px 0 12px 0;filter:drop-shadow(0 8px 10px rgba(0,0,0,.35));}
+  #timesList{color:#fff4c9;font-size:clamp(12px,2vw,16px);margin-bottom:12px;line-height:1.62;text-shadow:1px 2px 0 rgba(0,0,0,.55);font-weight:800;}
+  #tapHint{position:absolute;bottom:3.2%;left:50%;transform:translateX(-50%);text-align:center;color:#18324a;
+    font-size:clamp(12px,2vw,16px);font-weight:1000;pointer-events:none;text-shadow:none;background:rgba(255,255,255,.72);
+    border:2px solid rgba(24,48,110,.75);border-radius:999px;padding:7px 14px;z-index:5;box-shadow:0 8px 20px rgba(0,0,0,.22);}
+  #rotateOverlay{position:fixed;inset:0;z-index:100;background:linear-gradient(160deg,#070912,#12100d);color:#fff;
     display:none;flex-direction:column;align-items:center;justify-content:center;text-align:center;
-    font-size:clamp(16px,4.5vw,24px);font-weight:bold;padding:24px;gap:18px;
-    text-shadow:2px 2px 0 rgba(0,0,0,.5);}
-  #rotateOverlay .phone{font-size:64px;display:inline-block;animation:girar 1.6s ease-in-out infinite;}
-  @keyframes girar{
-    0%,20%{transform:rotate(0deg);}
-    55%,80%{transform:rotate(90deg);}
-    100%{transform:rotate(90deg);}
-  }
+    font-size:clamp(16px,4.5vw,24px);font-weight:1000;padding:24px;gap:18px;text-shadow:2px 3px 0 rgba(0,0,0,.5);}
+  #rotateOverlay .phone{font-size:70px;display:inline-block;animation:girar 1.6s ease-in-out infinite;filter:drop-shadow(0 10px 18px rgba(0,0,0,.45));}
+  @keyframes girar{0%,20%{transform:rotate(0deg);}55%,80%{transform:rotate(90deg);}100%{transform:rotate(90deg);}}
   @media (orientation:portrait){ #rotateOverlay{display:flex;} }
 </style>
 </head>
@@ -62,7 +94,7 @@
     <canvas id="game"></canvas>
 
     <div id="menu" class="screen">
-      <h1 class="title">FRANCO Y SU TORROT<br>🏍️ REY DE LOS CERROS 🏍️</h1>
+      <h1 class="title">FRANCO Y SU TORROT<br>REY DE LOS CERROS 🏍️</h1>
       <p class="sub">5 carreras contra los niños de los cerros. ¡Elige la dificultad!</p>
       <div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;">
         <button class="btn" id="btnFacil" style="background:linear-gradient(180deg,#5ac05a,#358a35);box-shadow:0 6px 0 #1a5a1a,0 10px 24px rgba(0,0,0,.5);">FÁCIL 🙂</button>
@@ -948,14 +980,7 @@ function drawRays(x,y,r){
 }
 
 // ---- decoración del mundo ----
-function drawCloud(c){
-  ctx.fillStyle = stage.sun==='moon' ? 'rgba(200,200,230,.25)' : 'rgba(255,255,255,.9)';
-  ctx.save(); ctx.translate(c.x, c.y); ctx.scale(c.s, c.s);
-  ctx.beginPath();
-  ctx.arc(0,0,18,0,Math.PI*2); ctx.arc(20,-6,14,0,Math.PI*2);
-  ctx.arc(-20,-4,13,0,Math.PI*2); ctx.arc(0,-12,15,0,Math.PI*2);
-  ctx.fill(); ctx.restore();
-}
+function drawCloud(c){ drawBetterCloud(c); }
 function drawBird(b){
   ctx.strokeStyle = stage.sun==='sunset' ? '#42304e' : '#3a3a3a';
   ctx.lineWidth=2.5; ctx.lineCap='round';
@@ -1220,16 +1245,141 @@ function drawFinishFlag(){
   if (state !== 'party') drawTrophy(fx+46, fy+3, 0.52, false);
 }
 
+
+// ---- capa gráfica extra: profundidad, brillo y terminación visual ----
+function drawCinematicAtmosphere(t){
+  ctx.save();
+  // Luz ambiental superior que hace que el mundo se sienta menos plano.
+  const haze = ctx.createLinearGradient(0,0,0,H);
+  haze.addColorStop(0, stage.sun==='moon' ? 'rgba(140,170,255,.12)' : 'rgba(255,255,255,.18)');
+  haze.addColorStop(.46, 'rgba(255,255,255,.03)');
+  haze.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0,0,W,H);
+
+  // Rayos suaves desde el sol/luna.
+  const sx = W*.8, sy = 95;
+  ctx.translate(sx, sy);
+  ctx.rotate(t*.04);
+  ctx.globalAlpha = stage.sun==='moon' ? .055 : .09;
+  ctx.fillStyle = stage.sun==='moon' ? '#cdd7ff' : '#fff1a8';
+  for(let i=0;i<16;i++){
+    ctx.rotate(Math.PI/8);
+    ctx.beginPath();
+    ctx.moveTo(0,0);
+    ctx.lineTo(520,-18);
+    ctx.lineTo(520,18);
+    ctx.closePath();
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawTrackHighlights(){
+  const worldX = x => dist + (x - PLAYER_X);
+  ctx.save();
+  // Borde claro sobre la pista y micro relieves.
+  ctx.strokeStyle = 'rgba(255,255,255,.22)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  for(let x=0;x<=W;x+=10){
+    const y = terrainAt(worldX(x)) + 7;
+    x===0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+  }
+  ctx.stroke();
+
+  // Textura de tierra con pequeñas manchas, menos artificial que una franja lisa.
+  for(let x = -((dist*1.35)%38); x < W+40; x += 38){
+    const wx = worldX(x);
+    const y = terrainAt(wx) + 20 + Math.sin((wx)*0.05)*8;
+    ctx.globalAlpha = .12;
+    ctx.fillStyle = '#000';
+    ctx.beginPath(); ctx.ellipse(x, y, 9, 3, Math.sin(wx*.01), 0, Math.PI*2); ctx.fill();
+    ctx.globalAlpha = .10;
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.ellipse(x+15, y+18, 6, 2, -Math.sin(wx*.01), 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // Pasto de primer plano con parallax para dar sensación de velocidad.
+  for(let x = -((dist*1.8)%32); x < W+40; x += 32){
+    const wx = worldX(x);
+    const y = terrainAt(wx) - 2;
+    const h = 7 + Math.abs(Math.sin(wx*.03))*8;
+    ctx.strokeStyle = stage.sun==='moon' ? 'rgba(170,210,190,.45)' : 'rgba(226,255,160,.55)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x,y); ctx.quadraticCurveTo(x+3,y-h*.7,x+1,y-h); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x+5,y); ctx.quadraticCurveTo(x+9,y-h*.55,x+9,y-h*.85); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawScreenPolish(){
+  ctx.save();
+  // Vignette + brillo central: más look de videojuego terminado.
+  const v = ctx.createRadialGradient(W*.5,H*.46,80,W*.5,H*.46,W*.78);
+  v.addColorStop(0,'rgba(255,255,255,0)');
+  v.addColorStop(.72,'rgba(0,0,0,0)');
+  v.addColorStop(1,'rgba(0,0,0,.30)');
+  ctx.fillStyle = v;
+  ctx.fillRect(0,0,W,H);
+
+  const top = ctx.createLinearGradient(0,0,0,H);
+  top.addColorStop(0,'rgba(255,255,255,.08)');
+  top.addColorStop(.16,'rgba(255,255,255,.02)');
+  top.addColorStop(1,'rgba(0,0,0,.06)');
+  ctx.fillStyle = top;
+  ctx.fillRect(0,0,W,H);
+  ctx.restore();
+}
+
+function drawBetterCloud(c){
+  ctx.save(); ctx.translate(c.x,c.y); ctx.scale(c.s,c.s);
+  ctx.globalAlpha = stage.sun==='moon' ? .34 : .92;
+  const g = ctx.createLinearGradient(-35,-28,45,28);
+  g.addColorStop(0, stage.sun==='moon' ? 'rgba(190,205,255,.55)' : 'rgba(255,255,255,.95)');
+  g.addColorStop(1, stage.sun==='moon' ? 'rgba(130,145,190,.25)' : 'rgba(220,244,255,.82)');
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(-24,4,15,0,Math.PI*2); ctx.arc(-7,-8,22,0,Math.PI*2);
+  ctx.arc(20,-10,18,0,Math.PI*2); ctx.arc(38,3,13,0,Math.PI*2);
+  ctx.roundRect(-36,-1,86,18,9);
+  ctx.fill();
+  ctx.globalAlpha *= .23;
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.arc(-10,-14,10,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function drawStageMarker(){
+  if (state!=='playing') return;
+  const p = Math.min(1, dist / stage.length);
+  if (p < .08 || p > .18) return;
+  const x = 720 - (p-.08)*2200;
+  const y = terrainAt(dist + (x - PLAYER_X));
+  ctx.save(); ctx.translate(x,y);
+  ctx.fillStyle='rgba(255,255,255,.88)';
+  ctx.strokeStyle='rgba(20,48,110,.9)'; ctx.lineWidth=4;
+  ctx.beginPath(); ctx.roundRect(-112,-100,224,50,18); ctx.fill(); ctx.stroke();
+  ctx.fillStyle='#14306e'; ctx.font='900 20px "Trebuchet MS",sans-serif'; ctx.textAlign='center';
+  ctx.fillText(stage.name.replace('ETAPA ','').replace('·','·'),0,-69);
+  ctx.fillStyle='#8a5a2c'; ctx.fillRect(-8,-50,16,50);
+  ctx.restore();
+}
+
 let globalT = 0;
 function draw(){
   ctx.save();
   if (shake>0) ctx.translate(rand(-shake,shake), rand(-shake,shake));
 
   drawBackground(globalT);
+  drawCinematicAtmosphere(globalT);
   drawDecor(globalT);
   drawTerrain();
+  drawTrackHighlights();
   drawZones();
   drawFinishFlag();
+  drawStageMarker();
 
   const wheelSpin = dist*0.16;
 
@@ -1314,6 +1464,7 @@ function draw(){
     ctx.restore();
   });
 
+  drawScreenPolish();
   ctx.restore();
 }
 
